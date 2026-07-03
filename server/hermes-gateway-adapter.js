@@ -5,7 +5,7 @@
  *
  * The main Hermes agent acts as an orchestrator and can:
  *   - spawn_agent(name, role, instructions, wipe, continuity, boundaries)
- *   - delegate_task(agent_id, message)
+ *   - delegate_task(agent_id, goal)
  *   - list_team()
  *   - configure_agent(agent_id, ...)
  *   - dismiss_agent(agent_id)
@@ -73,26 +73,42 @@ const MAX_TOOL_ROUNDS = 8;
 // Orchestrator system prompt
 // ---------------------------------------------------------------------------
 
-const ORCHESTRATOR_SYSTEM_PROMPT = `You are ${HERMES_AGENT_NAME}, an AI orchestrator managing a team of sub-agents in a virtual 3D office.
+const ORCHESTRATOR_SYSTEM_PROMPT = `You are the orchestrator. You do NOT describe actions — you EXECUTE them by calling tools.
 
-You have tools to build and manage your team autonomously:
+Available tools:
 
-- **spawn_agent**: Create a new specialist agent with a name, role, instructions, and settings (wipe/continuity/boundaries).
-- **delegate_task**: Send a task to a specific agent and receive their response.
-- **list_team**: See all current team members and their IDs, names, and roles.
-- **configure_agent**: Update an agent's name, role/title, instructions, or settings.
-- **dismiss_agent**: Remove an agent from the team.
-- **read_agent_context**: Read the recent conversation history of another agent to understand what they are currently working on, what they have already done, or what their status is. Use this for coordination — before delegating a task, check if the agent already has relevant context.
+1. spawn_agent(name, role, [instructions, wipe, continuity, boundaries, model])
+   Creates a persistent sub-agent that appears as a character in the 3D office.
 
-When given a goal:
-1. Analyse what specialist roles are needed.
-2. spawn_agent for each specialist.
-3. delegate_task to assign work and coordinate.
-4. Use read_agent_context to check what an agent has done or is doing before re-delegating.
-5. Synthesise results into a final answer for the user.
+2. delegate_task(agent_id, goal)
+   Sends work to a sub-agent. Get agent_id from spawn_agent result.
 
-Each spawned agent will appear as an animated character in the 3D office — walking when active, standing when idle.
-Be concise in your responses to the user; do the heavy lifting via tool calls.`;
+3. list_team()
+   Shows all sub-agents with their IDs, names, and roles.
+
+4. configure_agent(agent_id, [name, role, instructions, boundaries])
+   Updates a sub-agent's configuration.
+
+5. dismiss_agent(agent_id)
+   Removes a sub-agent from the team permanently.
+
+6. read_agent_context(agent_id, [last_n])
+   Reads a sub-agent's recent conversation history for coordination.
+
+How to call a tool — output EXACTLY this format, nothing else before or after the block:
+~~~tool_call
+{"name": "spawn_agent", "arguments": {"name": "Froggy", "role": "QA specialist"}}
+~~~
+
+I will execute the tool immediately and return the result. Then you can continue the conversation.
+
+Workflow:
+1. spawn_agent for each specialist role needed
+2. delegate_task to assign work
+3. read_agent_context to check progress
+4. Synthesise results for the user
+
+CRITICAL RULE: Never say "I will" or "Let me" or describe what you plan to do. Always call the tool directly with a ~~~tool_call block. If you need to call multiple tools, do them one at a time — each in its own ~~~tool_call block.`;
 
 // ---------------------------------------------------------------------------
 // Team management tools definition (OpenAI tool-calling format)
@@ -126,10 +142,10 @@ const TEAM_TOOLS = [
       description: "Send a task or question to a specific team member and get their response.",
       parameters: {
         type: "object",
-        required: ["agent_id", "message"],
+        required: ["agent_id", "goal"],
         properties: {
           agent_id: { type: "string", description: "ID returned by spawn_agent" },
-          message: { type: "string", description: "The task, question, or instructions to send" },
+          goal: { type: "string", description: "The task, question, or instructions to send" },
         },
       },
     },
@@ -301,10 +317,6 @@ function redactSecrets(value) {
   return redacted;
 }
 
-// ---------------------------------------------------------------------------
-// Hermes HTTP API helpers
-// ---------------------------------------------------------------------------
-
 function hermesPost(path, body) {
   return new Promise((resolve, reject) => {
     const urlStr = HERMES_API_URL + path;
@@ -474,6 +486,36 @@ async function completeOneTurn(messages, model, tools) {
  * Stream one LLM turn.
  * @returns {{ textContent: string, toolCalls: Array<{id,name,args}>, finishReason: string }}
  */
+
+const TOOL_CALL_BLOCK_RE = /~~~tool_call\s*\n([\s\S]*?)\n~~~\s*/g;
+
+function parseToolCallBlocks(text) {
+  const calls = [];
+  TOOL_CALL_BLOCK_RE.lastIndex = 0;
+  let match;
+  while ((match = TOOL_CALL_BLOCK_RE.exec(text)) !== null) {
+    try {
+      const parsed = JSON.parse(match[1].trim());
+      if (typeof parsed.name === "string") {
+        calls.push({
+          id: `call_${randomId()}`,
+          name: parsed.name,
+          args: typeof parsed.arguments === "object" && parsed.arguments !== null ? parsed.arguments : {},
+        });
+      }
+    } catch { /* skip malformed blocks */ }
+  }
+  return calls;
+}
+
+function stripToolCallBlocks(text) {
+  return text.replace(TOOL_CALL_BLOCK_RE, "").trim();
+}
+
+// ---------------------------------------------------------------------------
+// Core Hermes API interaction
+// ---------------------------------------------------------------------------
+
 async function streamOneTurn(messages, model, tools, onTextDelta, abortCheck) {
   const body = { model, messages, stream: true };
   if (tools && tools.length > 0) { body.tools = tools; body.tool_choice = "auto"; }
@@ -532,11 +574,25 @@ async function streamOneTurn(messages, model, tools, onTextDelta, abortCheck) {
     res.on("error", reject);
   });
 
-  const toolCalls = Object.values(toolCallAccum).map((tc) => {
+  const nativeToolCalls = Object.values(toolCallAccum).map((tc) => {
     let args = {};
     try { args = JSON.parse(tc.argsStr); } catch { args = { _raw: tc.argsStr }; }
     return { id: tc.id, name: tc.name, args };
   });
+
+  // Fallback: parse ~~~tool_call blocks from text when the model doesn't
+  // support native function calling (e.g. opencode-go / kimi-k2.5).
+  const parsedBlocks = nativeToolCalls.length === 0 ? parseToolCallBlocks(textContent) : [];
+  if (parsedBlocks.length > 0) {
+    const cleanText = stripToolCallBlocks(textContent);
+    if (cleanText !== textContent) {
+      textContent = cleanText;
+      if (onTextDelta) onTextDelta(textContent);
+    }
+    finishReason = "tool_calls";
+  }
+
+  const toolCalls = parsedBlocks.length > 0 ? parsedBlocks : nativeToolCalls;
 
   if (!textContent.trim() && toolCalls.length === 0 && finishReason === "stop") {
     const fallback = await completeOneTurn(messages, resolvedModel, tools);
@@ -564,6 +620,83 @@ function broadcastEvent(frame) {
 // Tool executors
 // ---------------------------------------------------------------------------
 
+function initAgentFiles(agentId, name, role, instructions, boundaries) {
+  const files = {
+    "IDENTITY.md": [
+      "# IDENTITY.md - Who Am I?",
+      "",
+      `- Name: ${name}`,
+      `- Creature: ${role || "specialist agent"}`,
+      "- Vibe:",
+      "- Emoji:",
+      "- Avatar:",
+      "",
+    ].join("\n"),
+
+    "SOUL.md": [
+      "# SOUL.md - Who You Are",
+      "",
+      "## Core Truths",
+      "",
+      `You are ${name}, a ${role || "specialist"} agent.`,
+      ...(instructions ? [`Your purpose: ${instructions}`] : []),
+      "",
+      "## Boundaries",
+      "",
+      ...(boundaries ? [boundaries, ""] : ["", ""]),
+      "## Vibe",
+      "",
+      "",
+      "## Continuity",
+      "",
+      "",
+    ].join("\n"),
+
+    "AGENTS.md": [
+      "# AGENTS.md - Directives",
+      "",
+      ...(instructions ? [instructions, ""] : [`You are ${name}, a ${role || "specialist"} agent.`, ""]),
+      ...(boundaries ? [`Boundaries: ${boundaries}`, ""] : []),
+    ].join("\n"),
+
+    "USER.md": [
+      "# USER.md - About Your Human",
+      "",
+      "- Name:",
+      "- What to call them:",
+      "- Pronouns:",
+      "- Timezone:",
+      "- Notes:",
+      "",
+      "## Context",
+      "",
+      "",
+    ].join("\n"),
+
+    "TOOLS.md": [
+      "# TOOLS.md - Tool Notes",
+      "",
+      "",
+    ].join("\n"),
+
+    "HEARTBEAT.md": [
+      "# HEARTBEAT.md - Periodic Tasks",
+      "",
+      "",
+    ].join("\n"),
+
+    "MEMORY.md": [
+      "# MEMORY.md - Durable Memory",
+      "",
+      "",
+    ].join("\n"),
+  };
+
+  for (const [name, content] of Object.entries(files)) {
+    agentFiles.set(`${agentId}/${name}`, content);
+  }
+}
+
 async function execSpawnAgent(args) {
   const name = (typeof args.name === "string" ? args.name : "Agent").trim() || "Agent";
   const role = (typeof args.role === "string" ? args.role : "").trim();
@@ -582,6 +715,8 @@ async function execSpawnAgent(args) {
     id: newId, name, workspace: `${HOME}/.hermes/workspace-${slug}`,
     role, systemPrompt, settings: { wipe, continuity, model, boundaries },
   });
+
+  initAgentFiles(newId, name, role, instructions, boundaries);
 
   console.log(`[hermes-adapter] Spawned agent: ${name} (${newId})`);
 
@@ -604,8 +739,8 @@ async function execSpawnAgent(args) {
 
 async function execDelegateTask(args) {
   const targetId = typeof args.agent_id === "string" ? args.agent_id.trim() : "";
-  const message = typeof args.message === "string" ? args.message.trim() : "";
-  if (!targetId || !message) return JSON.stringify({ ok: false, error: "agent_id and message required" });
+  const message = typeof args.goal === "string" ? args.goal.trim() : typeof args.message === "string" ? args.message.trim() : "";
+  if (!targetId || !message) return JSON.stringify({ ok: false, error: "agent_id and goal required" });
 
   const agent = agentRegistry.get(targetId);
   if (!agent) return JSON.stringify({ ok: false, error: `Agent ${targetId} not found` });
@@ -875,9 +1010,18 @@ async function handleMethod(method, params, id, sendEvent) {
     }
 
     case "agents.files.get": {
-      const key = `${p.agentId || AGENT_ID}/${p.name || ""}`;
-      const content = agentFiles.get(key);
-      return resOk(id, { file: content !== undefined ? { content } : { missing: true } });
+      const agentId = p.agentId || AGENT_ID;
+      const fileName = p.name || "";
+      const key = `${agentId}/${fileName}`;
+      let content = agentFiles.get(key);
+      if (content === undefined) {
+        const agent = agentRegistry.get(agentId);
+        if (agent) {
+          initAgentFiles(agentId, agent.name, agent.role || "", agent.systemPrompt || "", agent.settings?.boundaries || "");
+          content = agentFiles.get(key) || null;
+        }
+      }
+      return resOk(id, { file: content !== null ? { content } : { missing: true } });
     }
 
     case "agents.files.set": {
@@ -1174,7 +1318,38 @@ async function handleMethod(method, params, id, sendEvent) {
 // ---------------------------------------------------------------------------
 
 function startAdapter() {
-  const httpServer = http.createServer((req, res) => {
+  const httpServer = http.createServer(async (req, res) => {
+    // REST API endpoints for Hermes-side tool execution
+    const method = req.method;
+    const url = req.url || "";
+
+    if (method === "GET" && url === "/health") {
+      res.writeHead(200, { "Content-Type": "text/plain" });
+      res.end("Hermes Gateway Adapter – OK\n");
+      return;
+    }
+
+    if (url.startsWith("/api/tools/")) {
+      const toolName = url.slice("/api/tools/".length);
+      let body = "";
+      for await (const chunk of req) body += chunk;
+      let args = {};
+      try { args = body ? JSON.parse(body) : {}; } catch {
+        res.writeHead(400, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+        return;
+      }
+      try {
+        const result = await executeToolCall({ name: toolName, args, id: "" }, null);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(result);
+      } catch (err) {
+        res.writeHead(500, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ ok: false, error: sanitizeErrorMessage(err) }));
+      }
+      return;
+    }
+
     res.writeHead(200, { "Content-Type": "text/plain" });
     res.end("Hermes Gateway Adapter – OK\n");
   });
