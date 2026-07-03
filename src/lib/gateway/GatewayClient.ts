@@ -187,7 +187,8 @@ const normalizeLocalGatewayDefaults = (value: unknown): StudioGatewaySettings | 
     raw.adapterType === "openclaw" ||
     raw.adapterType === "local" ||
     raw.adapterType === "claw3d" ||
-    raw.adapterType === "custom"
+    raw.adapterType === "custom" ||
+    raw.adapterType === "opencode"
       ? raw.adapterType
       : "openclaw";
   const profiles = normalizeGatewayProfilesPublic(raw.profiles);
@@ -210,7 +211,7 @@ const normalizeGatewayProfilesPublic = (
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<Record<StudioGatewayAdapterType, StudioGatewayProfilePublic>>;
   const profiles: Partial<Record<StudioGatewayAdapterType, { url: string; token: string }>> = {};
-  for (const adapterType of ["openclaw", "hermes", "demo", "local", "claw3d", "custom"] as const) {
+  for (const adapterType of ["openclaw", "hermes", "demo", "local", "claw3d", "custom", "opencode"] as const) {
     const profile = normalizeGatewayProfilePublic(raw[adapterType]);
     if (profile) {
       profiles[adapterType] = profile;
@@ -964,7 +965,8 @@ export const useGatewayConnection = (
         hello?.adapterType === "demo" ||
         hello?.adapterType === "hermes" ||
         hello?.adapterType === "openclaw" ||
-        hello?.adapterType === "custom"
+        hello?.adapterType === "custom" ||
+        hello?.adapterType === "opencode"
           ? hello.adapterType
           : "openclaw";
       setDetectedAdapterType(nextDetectedAdapterType);

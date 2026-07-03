@@ -37,7 +37,8 @@ export type StudioGatewayAdapterType =
   | "demo"
   | "local"
   | "claw3d"
-  | "custom";
+  | "custom"
+  | "opencode";
 export const STUDIO_GATEWAY_ADAPTER_TYPES = [
   "openclaw",
   "hermes",
@@ -45,6 +46,7 @@ export const STUDIO_GATEWAY_ADAPTER_TYPES = [
   "local",
   "claw3d",
   "custom",
+  "opencode",
 ] as const;
 
 export type StudioGatewayProfile = {
@@ -941,7 +943,8 @@ const normalizeGatewayAdapterType = (
     adapterType === "openclaw" ||
     adapterType === "local" ||
     adapterType === "claw3d" ||
-    adapterType === "custom"
+    adapterType === "custom" ||
+    adapterType === "opencode"
   ) {
     return adapterType;
   }

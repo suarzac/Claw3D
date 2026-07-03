@@ -8,6 +8,8 @@
     "dev:https": "node server/index.js --dev --https",
     "hermes-adapter": "node server/hermes-gateway-adapter.js",
     "demo-gateway": "node server/demo-gateway-adapter.js",
+    "opencode-adapter": "node server/opencode-gateway-adapter.js",
+    "setup:opencode": "node scripts/setup-opencode-adapter.mjs",
     "build": "next build",
     "start": "node server/index.js",
     "lint": "eslint .",

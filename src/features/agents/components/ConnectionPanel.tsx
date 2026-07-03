@@ -43,7 +43,8 @@ export const ConnectionPanel = ({
     selectedAdapterType === "demo" ||
     selectedAdapterType === "local" ||
     selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
+    selectedAdapterType === "custom" ||
+    selectedAdapterType === "opencode";
   const applyDemoPreset = () => {
     onAdapterTypeChange("demo");
   };
