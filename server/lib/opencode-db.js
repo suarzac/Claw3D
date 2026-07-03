@@ -112,6 +112,152 @@ function normalizeSessionRow(row) {
   };
 }
 
+/**
+ * Parse session.model JSON field into { provider, model }.
+ * Model is stored as e.g. {"id":"deepseek-v4-flash","providerID":"opencode-go"}
+ */
+function parseModelField(raw) {
+  if (!raw) return { provider: null, model: null };
+  try {
+    const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return {
+      provider: parsed.providerID || null,
+      model: parsed.id || null,
+    };
+  } catch {
+    return { provider: null, model: null };
+  }
+}
+
+/**
+ * Allocate total cost proportionally across token types.
+ */
+function allocateCost(cost, input, output, cacheRead, cacheWrite) {
+  const total = input + output + cacheRead + cacheWrite;
+  if (total <= 0 || !cost) return { inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 };
+  const c = Number(cost) || 0;
+  return {
+    inputCost: c * (input / total),
+    outputCost: c * (output / total),
+    cacheReadCost: c * (cacheRead / total),
+    cacheWriteCost: c * (cacheWrite / total),
+    totalCost: c,
+  };
+}
+
+/**
+ * Query sessions with usage/cost data for the analytics dashboard.
+ * Returns array of objects matching Claw3D's UsageSessionRow shape.
+ */
+function getSessionsUsage(startDate, endDate, limit) {
+  try {
+    const startMs = typeof startDate === "number" ? startDate : Date.now() - 30 * 86400000;
+    const endMs = typeof endDate === "number" ? endDate : Date.now();
+    const rowLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, limit)) : 200;
+
+    const rows = queryDb(
+      `SELECT id, agent, title, model, cost,
+              tokens_input, tokens_output, tokens_reasoning,
+              tokens_cache_read, tokens_cache_write,
+              time_created, time_updated
+       FROM session
+       WHERE time_created >= ${startMs}
+       AND time_created <= ${endMs}
+       ORDER BY time_created DESC
+       LIMIT ${rowLimit}`
+    );
+
+    return rows.map(function(row) {
+      const modelInfo = parseModelField(row.model);
+      const input = Number(row.tokens_input) || 0;
+      const output = Number(row.tokens_output) || 0;
+      const cacheRead = Number(row.tokens_cache_read) || 0;
+      const cacheWrite = Number(row.tokens_cache_write) || 0;
+      const totalTokens = input + output + cacheRead + cacheWrite;
+      const costs = allocateCost(row.cost, input, output, cacheRead, cacheWrite);
+
+      return {
+        key: row.id,
+        label: row.title || null,
+        agentId: row.agent || null,
+        modelProvider: modelInfo.provider,
+        model: modelInfo.model,
+        origin: { provider: modelInfo.provider || "opencode" },
+        channel: null,
+        updatedAt: row.time_updated || row.time_created || null,
+        usage: {
+          input: input,
+          output: output,
+          cacheRead: cacheRead,
+          cacheWrite: cacheWrite,
+          totalTokens: totalTokens,
+          inputCost: costs.inputCost,
+          outputCost: costs.outputCost,
+          cacheReadCost: costs.cacheReadCost,
+          cacheWriteCost: costs.cacheWriteCost,
+          totalCost: costs.totalCost,
+          durationMs: 0,
+        },
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Get daily cost breakdown for the analytics dashboard.
+ * Returns array of { date, input, output, cacheRead, cacheWrite, totalTokens, inputCost, outputCost, ... }.
+ */
+function getUsageCost(startDate, endDate) {
+  try {
+    const startMs = typeof startDate === "number" ? startDate : Date.now() - 30 * 86400000;
+    const endMs = typeof endDate === "number" ? endDate : Date.now();
+
+    const rows = queryDb(
+      `SELECT (time_created / 86400000) AS day_epoch,
+              SUM(tokens_input) AS total_input,
+              SUM(tokens_output) AS total_output,
+              SUM(tokens_cache_read) AS total_cache_read,
+              SUM(tokens_cache_write) AS total_cache_write,
+              SUM(cost) AS total_cost
+       FROM session
+       WHERE time_created >= ${startMs}
+       AND time_created <= ${endMs}
+       GROUP BY day_epoch
+       ORDER BY day_epoch ASC`
+    );
+
+    return rows.map(function(row) {
+      const input = Number(row.total_input) || 0;
+      const output = Number(row.total_output) || 0;
+      const cacheRead = Number(row.total_cache_read) || 0;
+      const cacheWrite = Number(row.total_cache_write) || 0;
+      const totalTokens = input + output + cacheRead + cacheWrite;
+      const costs = allocateCost(row.total_cost, input, output, cacheRead, cacheWrite);
+
+      // Convert epoch day (days since Unix epoch) to YYYY-MM-DD
+      const date = new Date(Number(row.day_epoch) * 86400000).toISOString().slice(0, 10);
+
+      return {
+        date: date,
+        input: input,
+        output: output,
+        cacheRead: cacheRead,
+        cacheWrite: cacheWrite,
+        totalTokens: totalTokens,
+        inputCost: costs.inputCost,
+        outputCost: costs.outputCost,
+        cacheReadCost: costs.cacheReadCost,
+        cacheWriteCost: costs.cacheWriteCost,
+        totalCost: costs.totalCost,
+      };
+    });
+  } catch {
+    return [];
+  }
+}
+
 function queryDb(sql, params = []) {
   try {
     const Database = require("better-sqlite3");
@@ -139,4 +285,4 @@ function queryDb(sql, params = []) {
   }
 }
 
-module.exports = { getChildSessions, getOrchestratorSession, getSessionMessages, getOpenCodeModels, getDbPath, getConfigPath };
+module.exports = { getChildSessions, getOrchestratorSession, getSessionMessages, getOpenCodeModels, getSessionsUsage, getUsageCost, getDbPath, getConfigPath };

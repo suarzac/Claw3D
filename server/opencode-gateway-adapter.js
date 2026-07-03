@@ -313,6 +313,8 @@ function handlePluginMessage(msg) {
         } else {
           pending.reject(new Error(msg.error || "RPC failed"));
         }
+      } else {
+        console.warn("[opencode-adapter] rpc_result for unknown/expired id:", msg.id);
       }
       break;
     }
@@ -457,18 +459,18 @@ async function handleMethod(method, params, id, sendEvent) {
       if (!agentId || !agentRegistry.has(agentId)) return resErr(id, "not_found", "Agent " + agentId + " not found");
 
       let aborted = false;
-      activeRuns.set(runId, { runId, sessionKey, agentId, abort: () => { aborted = true; } });
+      const runEntry = { runId, sessionKey, agentId, abort: () => { aborted = true; } };
+      activeRuns.set(runId, runEntry);
 
-      const sent = writeToPlugin({
-        type: "rpc",
-        method: "inject_message",
-        params: { session_id: agentId, text: message },
-      });
-
-      if (!sent) {
-        activeRuns.delete(runId);
-        return resErr(id, "plugin_unavailable", "OpenCode plugin socket not connected");
-      }
+      // Fire RPC to plugin; clean up run when the subagent completes
+      callPluginRpc("inject_message", { session_id: agentId, text: message }, 300000)
+        .then(() => {
+          if (activeRuns.get(runId) === runEntry) activeRuns.delete(runId);
+        })
+        .catch((err) => {
+          console.warn("[opencode-adapter] chat.send RPC failed:", err.message);
+          if (activeRuns.get(runId) === runEntry) activeRuns.delete(runId);
+        });
 
       return resOk(id, { status: "started", runId });
     }
@@ -568,6 +570,45 @@ async function handleMethod(method, params, id, sendEvent) {
 
     case "tasks.list":
       return resOk(id, { tasks: [] });
+
+    case "sessions.usage": {
+      const startDate = typeof p.startDate === "number" ? p.startDate : 0;
+      const endDate = typeof p.endDate === "number" ? p.endDate : Date.now();
+      const limit = typeof p.limit === "number" ? p.limit : 200;
+      try {
+        const db = require("./lib/opencode-db");
+        const sessions = db.getSessionsUsage(startDate, endDate, limit);
+        const totals = sessions.reduce((acc, s) => ({
+          input: acc.input + s.usage.input,
+          output: acc.output + s.usage.output,
+          cacheRead: acc.cacheRead + s.usage.cacheRead,
+          cacheWrite: acc.cacheWrite + s.usage.cacheWrite,
+          totalTokens: acc.totalTokens + s.usage.totalTokens,
+          inputCost: acc.inputCost + s.usage.inputCost,
+          outputCost: acc.outputCost + s.usage.outputCost,
+          cacheReadCost: acc.cacheReadCost + s.usage.cacheReadCost,
+          cacheWriteCost: acc.cacheWriteCost + s.usage.cacheWriteCost,
+          totalCost: acc.totalCost + s.usage.totalCost,
+        }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 });
+        return resOk(id, { sessions, totals });
+      } catch (err) {
+        console.warn("[opencode-adapter] sessions.usage error:", err.message);
+        return resOk(id, { sessions: [], totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 } });
+      }
+    }
+
+    case "usage.cost": {
+      const startDate = typeof p.startDate === "number" ? p.startDate : 0;
+      const endDate = typeof p.endDate === "number" ? p.endDate : Date.now();
+      try {
+        const db = require("./lib/opencode-db");
+        const daily = db.getUsageCost(startDate, endDate);
+        return resOk(id, { daily });
+      } catch (err) {
+        console.warn("[opencode-adapter] usage.cost error:", err.message);
+        return resOk(id, { daily: [] });
+      }
+    }
 
     default:
       return resOk(id, {});
@@ -678,12 +719,13 @@ function startAdapter() {
               methods: [
                 "agents.list", "agents.create", "agents.update", "agents.delete",
                 "agents.files.get", "agents.files.set",
-                "sessions.list", "sessions.preview",
+                "sessions.list", "sessions.preview", "sessions.usage",
                 "sessions.patch", "sessions.reset", "chat.send",
                 "chat.abort", "chat.history", "agent.wait", "status",
                 "config.get", "config.set", "config.patch",
                 "models.list", "skills.status", "skills.update",
                 "skills.install", "skills.remove", "wake",
+                "usage.cost",
                 "exec.approvals.get", "exec.approvals.set", "exec.approval.resolve",
               ],
               events: ["chat", "presence", "heartbeat"],
