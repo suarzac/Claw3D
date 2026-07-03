@@ -426,7 +426,20 @@ async function handleMethod(method, params, id, sendEvent) {
     }
 
     case "skills.status":
-      return resOk(id, { skills: [] });
+      return resOk(id, {
+        workspaceDir: p.agentId ? `/opencode/agents/${p.agentId}` : "/opencode",
+        managedSkillsDir: "/opencode/skills",
+        skills: [],
+      });
+
+    case "skills.update":
+      return resOk(id, { ok: true, skillKey: p.skillKey || "", config: {} });
+
+    case "skills.install":
+      return resOk(id, { ok: true, message: "OpenCode adapter: skills require OpenClaw gateway to execute.", stdout: "", stderr: "", code: 0 });
+
+    case "skills.remove":
+      return resOk(id, { removed: true, removedPath: "", source: "openclaw-workspace" });
 
     case "wake":
       return resOk(id, { ok: true });
