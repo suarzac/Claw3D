@@ -145,14 +145,20 @@ function allocateCost(cost, input, output, cacheRead, cacheWrite) {
   };
 }
 
+function toEpochMs(value, fallback) {
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return new Date(value).getTime();
+  return fallback;
+}
+
 /**
  * Query sessions with usage/cost data for the analytics dashboard.
  * Returns array of objects matching Claw3D's UsageSessionRow shape.
  */
 function getSessionsUsage(startDate, endDate, limit) {
   try {
-    const startMs = typeof startDate === "number" ? startDate : Date.now() - 30 * 86400000;
-    const endMs = typeof endDate === "number" ? endDate : Date.now();
+    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000);
+    const endMs = toEpochMs(endDate, Date.now());
     const rowLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, limit)) : 200;
 
     const rows = queryDb(
@@ -211,8 +217,8 @@ function getSessionsUsage(startDate, endDate, limit) {
  */
 function getUsageCost(startDate, endDate) {
   try {
-    const startMs = typeof startDate === "number" ? startDate : Date.now() - 30 * 86400000;
-    const endMs = typeof endDate === "number" ? endDate : Date.now();
+    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000);
+    const endMs = toEpochMs(endDate, Date.now());
 
     const rows = queryDb(
       `SELECT (time_created / 86400000) AS day_epoch,
