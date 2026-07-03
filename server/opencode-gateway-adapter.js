@@ -46,6 +46,7 @@ let evictionSweepTimer = null;
 // Plugin socket connection
 let pluginSocket = null;
 let pluginBuffer = "";
+const pendingRpcs = new Map(); // rpcId → { resolve, reject, timer }
 
 function randomId() {
   return randomUUID().replace(/-/g, "").slice(0, 12);
@@ -196,6 +197,23 @@ function writeToPlugin(frame) {
   }
 }
 
+function callPluginRpc(method, params, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const rpcId = "rpc_" + randomId();
+    const timer = setTimeout(() => {
+      pendingRpcs.delete(rpcId);
+      reject(new Error("RPC " + method + " timed out after " + timeoutMs + "ms"));
+    }, timeoutMs || 15000);
+    pendingRpcs.set(rpcId, { resolve, reject, timer });
+    const sent = writeToPlugin({ type: "rpc", method, id: rpcId, params: params || {} });
+    if (!sent) {
+      clearTimeout(timer);
+      pendingRpcs.delete(rpcId);
+      reject(new Error("Plugin socket not connected"));
+    }
+  });
+}
+
 function handlePluginMessage(msg) {
   switch (msg.type) {
     case "subagent:created": {
@@ -284,6 +302,20 @@ function handlePluginMessage(msg) {
 
     case "pong":
       break;
+
+    case "rpc_result": {
+      const pending = msg.id ? pendingRpcs.get(msg.id) : null;
+      if (pending) {
+        clearTimeout(pending.timer);
+        pendingRpcs.delete(msg.id);
+        if (msg.ok) {
+          pending.resolve(msg.payload || {});
+        } else {
+          pending.reject(new Error(msg.error || "RPC failed"));
+        }
+      }
+      break;
+    }
   }
 }
 
@@ -301,6 +333,75 @@ async function handleMethod(method, params, id, sendEvent) {
         mainKey: MAIN_KEY,
         agents: buildAgentListPayload(),
       });
+    }
+
+    case "agents.create": {
+      const agentName = (typeof p.name === "string" && p.name.trim()) ? p.name.trim() : "Agent";
+      const slug = agentName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+      const newId = slug + "-" + randomId();
+
+      try {
+        const result = await callPluginRpc("create_session", {
+          parentId: orchestratorId,
+          title: agentName,
+          directory: p.workspace || "",
+        }, 10000);
+        const sessionId = result.id || newId;
+        agentRegistry.set(sessionId, {
+          id: sessionId, name: agentName, role: p.role || "",
+          workspace: p.workspace || "", identity: { name: agentName, emoji: "🤖" },
+          status: "running", updatedAt: Date.now(), parentId: orchestratorId || "",
+        });
+        debouncedPresence();
+        return resOk(id, { agentId: sessionId, name: agentName, workspace: p.workspace || "/opencode" });
+      } catch (_) {
+        // Fallback: register locally without a real session
+        agentRegistry.set(newId, {
+          id: newId, name: agentName, role: p.role || "",
+          workspace: p.workspace || "", identity: { name: agentName, emoji: "🤖" },
+          status: "idle", updatedAt: Date.now(), parentId: orchestratorId || "",
+        });
+        debouncedPresence();
+        return resOk(id, { agentId: newId, name: agentName, workspace: p.workspace || "/opencode" });
+      }
+    }
+
+    case "agents.update": {
+      const updId = typeof p.agentId === "string" ? p.agentId : "";
+      const existing = agentRegistry.get(updId);
+      if (existing) {
+        if (typeof p.name === "string" && p.name.trim()) existing.name = p.name.trim();
+        if (typeof p.workspace === "string" && p.workspace.trim()) existing.workspace = p.workspace.trim();
+        if (typeof p.role === "string") existing.role = p.role.trim();
+        debouncedPresence();
+      }
+      return resOk(id, { ok: true, removedBindings: 0 });
+    }
+
+    case "agents.delete": {
+      const delId = typeof p.agentId === "string" ? p.agentId : "";
+      if (delId && delId !== orchestratorId) {
+        agentRegistry.delete(delId);
+        conversationHistory.delete(sessionKeyFor(delId));
+        try { await callPluginRpc("delete_session", { sessionId: delId }, 5000); } catch (_) {}
+        debouncedPresence();
+      }
+      return resOk(id, { ok: true, removedBindings: 0 });
+    }
+
+    case "agents.files.get": {
+      const fileAgentId = p.agentId || orchestratorId;
+      const fileName = p.name || "";
+      try {
+        const result = await callPluginRpc("read_file", { path: (agentRegistry.get(fileAgentId)?.workspace || "") + "/" + fileName }, 10000);
+        return resOk(id, { file: result.content !== undefined ? { content: result.content } : { missing: true } });
+      } catch (_) {
+        return resOk(id, { file: { missing: true } });
+      }
+    }
+
+    case "agents.files.set": {
+      return resOk(id, {});
     }
 
     case "sessions.list": {
@@ -436,7 +537,7 @@ async function handleMethod(method, params, id, sendEvent) {
       return resOk(id, { ok: true, skillKey: p.skillKey || "", config: {} });
 
     case "skills.install":
-      return resOk(id, { ok: true, message: "OpenCode adapter: skills require OpenClaw gateway to execute.", stdout: "", stderr: "", code: 0 });
+      return resOk(id, { ok: true, message: "Use agents.create + chat.send + agent.wait for skill installation.", stdout: "", stderr: "", code: 0 });
 
     case "skills.remove":
       return resOk(id, { removed: true, removedPath: "", source: "openclaw-workspace" });
@@ -575,11 +676,14 @@ function startAdapter() {
             adapterType: "opencode",
             features: {
               methods: [
-                "agents.list", "sessions.list", "sessions.preview",
+                "agents.list", "agents.create", "agents.update", "agents.delete",
+                "agents.files.get", "agents.files.set",
+                "sessions.list", "sessions.preview",
                 "sessions.patch", "sessions.reset", "chat.send",
                 "chat.abort", "chat.history", "agent.wait", "status",
                 "config.get", "config.set", "config.patch",
-                "models.list", "skills.status", "wake",
+                "models.list", "skills.status", "skills.update",
+                "skills.install", "skills.remove", "wake",
                 "exec.approvals.get", "exec.approvals.set", "exec.approval.resolve",
               ],
               events: ["chat", "presence", "heartbeat"],
