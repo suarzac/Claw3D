@@ -10,7 +10,7 @@ const MAX_FRAME_SIZE = 256 * 1024;
 const MAX_FRAMES_PER_SECOND = 60;
 
 /** Allow short startup bursts before rate limiting. */
-const MAX_FRAME_BURST = 120;
+const MAX_FRAME_BURST = 500;
 
 const buildErrorResponse = (id, code, message) => {
   return {
