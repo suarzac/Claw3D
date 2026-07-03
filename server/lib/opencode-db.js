@@ -38,6 +38,22 @@ function getChildSessions(limit = 50, windowMinutes = 60) {
   }
 }
 
+function getOrchestratorSession() {
+  try {
+    const rows = queryDb(
+      `SELECT id, parent_id, agent, title, directory, time_created, time_updated, model
+       FROM session
+       WHERE (parent_id IS NULL OR parent_id = '')
+       AND agent IS NOT NULL AND agent != ''
+       ORDER BY time_created DESC
+       LIMIT 1`
+    );
+    return rows.length > 0 ? normalizeSessionRow(rows[0]) : null;
+  } catch {
+    return null;
+  }
+}
+
 function getSessionMessages(sessionId, limit = 20) {
   try {
     const rows = queryDb(
@@ -123,4 +139,4 @@ function queryDb(sql, params = []) {
   }
 }
 
-module.exports = { getChildSessions, getSessionMessages, getOpenCodeModels, getDbPath, getConfigPath };
+module.exports = { getChildSessions, getOrchestratorSession, getSessionMessages, getOpenCodeModels, getDbPath, getConfigPath };

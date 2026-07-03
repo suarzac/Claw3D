@@ -40,6 +40,7 @@ const activeRuns = new Map();
 
 // Eviction timers: agentId → setTimeout handle for idle removal
 const evictionTimers = new Map();
+let orchestratorId = null;
 let evictionSweepTimer = null;
 
 // Plugin socket connection
@@ -295,9 +296,8 @@ async function handleMethod(method, params, id, sendEvent) {
 
   switch (method) {
     case "agents.list": {
-      const defaultAgent = [...agentRegistry.values()][0];
       return resOk(id, {
-        defaultId: defaultAgent ? defaultAgent.id : "",
+        defaultId: orchestratorId || ([...agentRegistry.keys()][0] || ""),
         mainKey: MAIN_KEY,
         agents: buildAgentListPayload(),
       });
@@ -468,6 +468,25 @@ function startAdapter() {
   // Seed agent registry from DB on startup
   try {
     const db = require("./lib/opencode-db");
+
+    // Load the orchestrator (main session without parent_id)
+    const orchestrator = db.getOrchestratorSession();
+    if (orchestrator && !agentRegistry.has(orchestrator.id)) {
+      agentRegistry.set(orchestrator.id, {
+        id: orchestrator.id,
+        name: "Orchestrator",
+        role: orchestrator.agent || "opencode",
+        workspace: orchestrator.directory || "",
+        identity: { name: "Orchestrator", emoji: "🧠" },
+        status: "idle",
+        updatedAt: orchestrator.timeUpdated || orchestrator.timeCreated,
+        parentId: "",
+      });
+      orchestratorId = orchestrator.id;
+      console.log("[opencode-adapter] Orchestrator:", orchestrator.id);
+    }
+
+    // Load recent child sessions (subagents)
     const childSessions = db.getChildSessions(50, 60);
     for (const session of childSessions) {
       if (!agentRegistry.has(session.id)) {
@@ -557,7 +576,7 @@ function startAdapter() {
                 agents: [...agentRegistry.values()].map((a) => ({
                   agentId: a.id, name: a.name, isDefault: false,
                 })),
-                defaultAgentId: [...agentRegistry.keys()][0] || "",
+                defaultAgentId: orchestratorId || ([...agentRegistry.keys()][0] || ""),
               },
               sessionDefaults: { mainKey: MAIN_KEY },
             },
