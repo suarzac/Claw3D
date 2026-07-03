@@ -592,8 +592,8 @@ function startAdapter() {
         role: orchestrator.agent || "opencode",
         workspace: orchestrator.directory || "",
         identity: { name: "Orchestrator", emoji: "🧠" },
-        status: "idle",
-        updatedAt: orchestrator.timeUpdated || orchestrator.timeCreated,
+        status: "running",
+        updatedAt: Date.now(),
         parentId: "",
       });
       orchestratorId = orchestrator.id;
@@ -611,7 +611,7 @@ function startAdapter() {
           workspace: session.directory || "",
           identity: { name: session.title, emoji: "🤖" },
           status: "idle",
-          updatedAt: session.timeUpdated || session.timeCreated,
+          updatedAt: Date.now(),
           parentId: session.parentId || "",
         });
       }
