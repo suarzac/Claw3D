@@ -22,6 +22,8 @@ const { randomUUID } = require("crypto");
 const { WebSocketServer } = require("ws");
 
 const MAX_PLUGIN_BUFFER = 1024 * 1024; // 1 MB safety cap for plugin socket
+const EVICTION_IDLE_MS = 5 * 60 * 1000; // remove agents after 5 min idle
+const EVICTION_SWEEP_MS = 60 * 1000;    // sweep every 1 min
 const ADAPTER_PORT = parseInt(process.env.OPENCODE_ADAPTER_PORT || "18790", 10);
 const SOCKET_PATH = process.env.OPENCODE_CLAW3D_SOCKET ||
   path.join(os.homedir(), ".config", "opencode", "opencode-claw3d.sock");
@@ -35,6 +37,10 @@ const conversationHistory = new Map();
 const activeSendEventFns = new Set();
 // Active chat runs (for abort tracking)
 const activeRuns = new Map();
+
+// Eviction timers: agentId → setTimeout handle for idle removal
+const evictionTimers = new Map();
+let evictionSweepTimer = null;
 
 // Plugin socket connection
 let pluginSocket = null;
@@ -100,6 +106,40 @@ function buildPresencePayload() {
 }
 
 // ---------------------------------------------------------------------------
+// Idle eviction — removes agents after EVICTION_IDLE_MS of inactivity
+// ---------------------------------------------------------------------------
+
+function scheduleEviction(agentId) {
+  cancelEviction(agentId);
+  evictionTimers.set(agentId, setTimeout(() => {
+    evictionTimers.delete(agentId);
+    const agent = agentRegistry.get(agentId);
+    if (agent && agent.status === "idle") {
+      agentRegistry.delete(agentId);
+      conversationHistory.delete(sessionKeyFor(agentId));
+      debouncedPresence();
+    }
+  }, EVICTION_IDLE_MS));
+}
+
+function cancelEviction(agentId) {
+  if (evictionTimers.has(agentId)) {
+    clearTimeout(evictionTimers.get(agentId));
+    evictionTimers.delete(agentId);
+  }
+}
+
+function sweepEvictions() {
+  const now = Date.now();
+  for (const [agentId, agent] of agentRegistry) {
+    if (agent.status === "idle" && (now - agent.updatedAt) > EVICTION_IDLE_MS) {
+      agentRegistry.delete(agentId);
+      conversationHistory.delete(sessionKeyFor(agentId));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Unix socket server -- receives events from OpenCode plugin
 // ---------------------------------------------------------------------------
 
@@ -160,6 +200,7 @@ function handlePluginMessage(msg) {
     case "subagent:created": {
       const p = msg.payload;
       if (!p || !p.id) break;
+      cancelEviction(p.id);
       agentRegistry.set(p.id, {
         id: p.id,
         name: (p.title || p.agent || "Subagent").slice(0, 60),
@@ -179,8 +220,10 @@ function handlePluginMessage(msg) {
       if (!p || !p.id) break;
       const agent = agentRegistry.get(p.id);
       if (agent) {
+        cancelEviction(p.id);
         if (p.title) agent.name = p.title.slice(0, 60);
         agent.updatedAt = Date.now();
+        agent.status = "running";
         debouncedPresence();
       }
       break;
@@ -222,6 +265,7 @@ function handlePluginMessage(msg) {
       if (agent) {
         agent.status = "idle";
         agent.updatedAt = Date.now();
+        scheduleEviction(p.id);
       }
       debouncedPresence();
       break;
@@ -230,6 +274,7 @@ function handlePluginMessage(msg) {
     case "subagent:deleted": {
       const p = msg.payload;
       if (!p || !p.id) break;
+      cancelEviction(p.id);
       agentRegistry.delete(p.id);
       conversationHistory.delete(sessionKeyFor(p.id));
       debouncedPresence();
@@ -423,7 +468,7 @@ function startAdapter() {
   // Seed agent registry from DB on startup
   try {
     const db = require("./lib/opencode-db");
-    const childSessions = db.getChildSessions(50);
+    const childSessions = db.getChildSessions(50, 60);
     for (const session of childSessions) {
       if (!agentRegistry.has(session.id)) {
         agentRegistry.set(session.id, {
@@ -438,10 +483,13 @@ function startAdapter() {
         });
       }
     }
-    console.log("[opencode-adapter] Seeded " + childSessions.length + " subagents from opencode.db");
+    console.log("[opencode-adapter] Seeded " + childSessions.length + " recent subagents from opencode.db");
   } catch (err) {
     console.warn("[opencode-adapter] Could not seed from DB:", err.message);
   }
+
+  // Periodic eviction sweep as safety net
+  evictionSweepTimer = setInterval(sweepEvictions, EVICTION_SWEEP_MS);
 
   // Start Unix socket for plugin communication
   const pluginServer = startPluginSocket();
@@ -547,6 +595,12 @@ function startAdapter() {
     httpServer.close();
     pluginServer.close();
     try { fs.unlinkSync(SOCKET_PATH); } catch (_) {}
+    // Clear all eviction timers
+    if (evictionSweepTimer) clearInterval(evictionSweepTimer);
+    for (const [agentId, timer] of evictionTimers) {
+      clearTimeout(timer);
+    }
+    evictionTimers.clear();
     process.exit(0);
   };
   process.on("SIGINT", cleanup);

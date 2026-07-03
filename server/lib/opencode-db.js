@@ -21,12 +21,14 @@ function getConfigPath() {
   );
 }
 
-function getChildSessions(limit = 50) {
+function getChildSessions(limit = 50, windowMinutes = 60) {
   try {
+    const cutoff = Date.now() - (windowMinutes * 60 * 1000);
     const rows = queryDb(
       `SELECT id, parent_id, agent, title, directory, time_created, time_updated, model
        FROM session
        WHERE parent_id IS NOT NULL
+       AND time_created >= ${cutoff}
        ORDER BY time_created DESC
        LIMIT ${Number.isFinite(limit) ? Math.max(1, Math.min(500, limit)) : 50}`
     );
