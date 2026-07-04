@@ -25,6 +25,7 @@ const MAX_PLUGIN_BUFFER = 1024 * 1024; // 1 MB safety cap for plugin socket
 const EVICTION_IDLE_MS = 5 * 60 * 1000; // remove agents after 5 min idle
 const EVICTION_SWEEP_MS = 60 * 1000;    // sweep every 1 min
 const ADAPTER_PORT = parseInt(process.env.OPENCODE_ADAPTER_PORT || "18790", 10);
+const ADAPTER_HOST = process.env.OPENCODE_ADAPTER_HOST || "127.0.0.1";
 const SOCKET_PATH = process.env.OPENCODE_CLAW3D_SOCKET ||
   path.join(os.homedir(), ".config", "opencode", "opencode-claw3d.sock");
 const MAIN_KEY = "main";
@@ -762,7 +763,7 @@ function startAdapter() {
     ws.on("error", () => activeSendEventFns.delete(sendEventFn));
   });
 
-  httpServer.listen(ADAPTER_PORT, "127.0.0.1", () => {
+  httpServer.listen(ADAPTER_PORT, ADAPTER_HOST, () => {
     console.log("[opencode-adapter] WebSocket server at ws://localhost:" + ADAPTER_PORT);
     console.log("[opencode-adapter] Connect Claw3D using 'OpenCode' backend profile");
   });
