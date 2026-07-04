@@ -145,9 +145,12 @@ function allocateCost(cost, input, output, cacheRead, cacheWrite) {
   };
 }
 
-function toEpochMs(value, fallback) {
+function toEpochMs(value, fallback, isEnd) {
   if (typeof value === "number") return value;
-  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) return new Date(value).getTime();
+  if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+    const ms = new Date(value).getTime();
+    return isEnd ? ms + 86400000 : ms; // end date → end of day
+  }
   return fallback;
 }
 
@@ -157,8 +160,8 @@ function toEpochMs(value, fallback) {
  */
 function getSessionsUsage(startDate, endDate, limit) {
   try {
-    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000);
-    const endMs = toEpochMs(endDate, Date.now());
+    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000, false);
+    const endMs = toEpochMs(endDate, Date.now(), true);
     const rowLimit = Number.isFinite(limit) ? Math.max(1, Math.min(1000, limit)) : 200;
 
     const rows = queryDb(
@@ -173,6 +176,10 @@ function getSessionsUsage(startDate, endDate, limit) {
        LIMIT ${rowLimit}`
     );
 
+    // Batch fetch message counts for all returned sessions
+    const sessionIds = rows.map(function(r) { return r.id; });
+    const msgCounts = getMessageCounts(sessionIds);
+
     return rows.map(function(row) {
       const modelInfo = parseModelField(row.model);
       const input = Number(row.tokens_input) || 0;
@@ -181,6 +188,7 @@ function getSessionsUsage(startDate, endDate, limit) {
       const cacheWrite = Number(row.tokens_cache_write) || 0;
       const totalTokens = input + output + cacheRead + cacheWrite;
       const costs = allocateCost(row.cost, input, output, cacheRead, cacheWrite);
+      const counts = msgCounts[row.id] || { total: 0, user: 0, assistant: 0, errors: 0 };
 
       return {
         key: row.id,
@@ -203,6 +211,14 @@ function getSessionsUsage(startDate, endDate, limit) {
           cacheWriteCost: costs.cacheWriteCost,
           totalCost: costs.totalCost,
           durationMs: 0,
+          messageCounts: {
+            total: counts.total,
+            user: counts.user,
+            assistant: counts.assistant,
+            toolCalls: 0,
+            toolResults: 0,
+            errors: counts.errors,
+          },
         },
       };
     });
@@ -212,13 +228,49 @@ function getSessionsUsage(startDate, endDate, limit) {
 }
 
 /**
+ * Batch query message counts for a list of session IDs.
+ * Returns { [sessionId]: { total, user, assistant, errors } }.
+ */
+function getMessageCounts(sessionIds) {
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) return {};
+  try {
+    // Use better-sqlite3 for parameterized batch query
+    const Database = require("better-sqlite3");
+    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    try {
+      const placeholders = sessionIds.map(function() { return "?"; }).join(",");
+      const stmt = db.prepare(
+        `SELECT session_id, data FROM message WHERE session_id IN (${placeholders})`
+      );
+      const messages = stmt.all.apply(stmt, sessionIds);
+      const counts = {};
+      for (let i = 0; i < messages.length; i++) {
+        const m = messages[i];
+        if (!counts[m.session_id]) counts[m.session_id] = { total: 0, user: 0, assistant: 0, errors: 0 };
+        counts[m.session_id].total++;
+        let data = {};
+        try { data = JSON.parse(m.data || "{}"); } catch {}
+        if (data.role === "user") counts[m.session_id].user++;
+        else counts[m.session_id].assistant++;
+        if (data.error) counts[m.session_id].errors++;
+      }
+      return counts;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return {};
+  }
+}
+
+/**
  * Get daily cost breakdown for the analytics dashboard.
  * Returns array of { date, input, output, cacheRead, cacheWrite, totalTokens, inputCost, outputCost, ... }.
  */
 function getUsageCost(startDate, endDate) {
   try {
-    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000);
-    const endMs = toEpochMs(endDate, Date.now());
+    const startMs = toEpochMs(startDate, Date.now() - 30 * 86400000, false);
+    const endMs = toEpochMs(endDate, Date.now(), true);
 
     const rows = queryDb(
       `SELECT (time_created / 86400000) AS day_epoch,
