@@ -4739,8 +4739,8 @@ export function OfficeScreen({
         </div>
       ) : null}
       {showGatewayConnectOverlay ? (
-        <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center bg-[#120a05]/76 px-4 py-10">
-          <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl">
+        <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#120a05]/76 px-4 py-10 max-md:px-2 max-md:py-4">
+          <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl max-md:mt-8">
             <GatewayConnectScreen
               gatewayUrl={gatewayUrl}
               token={token}
@@ -4767,7 +4767,7 @@ export function OfficeScreen({
         }}
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
       />
-      <section className="relative h-full min-h-0 min-w-0 overflow-hidden max-md:touch-none">
+      <section className={`relative h-full min-h-0 min-w-0 overflow-hidden max-md:touch-none ${showGatewayConnectOverlay ? "max-md:pointer-events-none" : ""}`}>
         <RetroOffice3D
           key={activeFloor.id}
           agents={allVisibleAgents}
