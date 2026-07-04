@@ -579,19 +579,89 @@ async function handleMethod(method, params, id, sendEvent) {
       try {
         const db = require("./lib/opencode-db");
         const sessions = db.getSessionsUsage(startDate, endDate, limit);
-        const totals = sessions.reduce((acc, s) => ({
-          input: acc.input + s.usage.input,
-          output: acc.output + s.usage.output,
-          cacheRead: acc.cacheRead + s.usage.cacheRead,
-          cacheWrite: acc.cacheWrite + s.usage.cacheWrite,
-          totalTokens: acc.totalTokens + s.usage.totalTokens,
-          inputCost: acc.inputCost + s.usage.inputCost,
-          outputCost: acc.outputCost + s.usage.outputCost,
-          cacheReadCost: acc.cacheReadCost + s.usage.cacheReadCost,
-          cacheWriteCost: acc.cacheWriteCost + s.usage.cacheWriteCost,
-          totalCost: acc.totalCost + s.usage.totalCost,
-        }), { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 });
-        return resOk(id, { sessions, totals });
+
+        // Compute totals
+        const totals = sessions.reduce(function(acc, s) {
+          const u = s.usage;
+          acc.input += u.input; acc.output += u.output;
+          acc.cacheRead += u.cacheRead; acc.cacheWrite += u.cacheWrite;
+          acc.totalTokens += u.totalTokens;
+          acc.inputCost += u.inputCost; acc.outputCost += u.outputCost;
+          acc.cacheReadCost += u.cacheReadCost; acc.cacheWriteCost += u.cacheWriteCost;
+          acc.totalCost += u.totalCost;
+          return acc;
+        }, { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+            inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 });
+
+        // Aggregate by agent
+        var byAgentMap = {};
+        sessions.forEach(function(s) {
+          var key = s.agentId || "unknown";
+          if (!byAgentMap[key]) byAgentMap[key] = { agentId: key, sessionCount: 0, totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 } };
+          var a = byAgentMap[key];
+          a.sessionCount++;
+          var u = s.usage;
+          a.totals.input += u.input; a.totals.output += u.output;
+          a.totals.cacheRead += u.cacheRead; a.totals.cacheWrite += u.cacheWrite;
+          a.totals.totalTokens += u.totalTokens;
+          a.totals.inputCost += u.inputCost; a.totals.outputCost += u.outputCost;
+          a.totals.cacheReadCost += u.cacheReadCost; a.totals.cacheWriteCost += u.cacheWriteCost;
+          a.totals.totalCost += u.totalCost;
+        });
+        var byAgent = Object.values(byAgentMap).sort(function(a, b) { return b.totals.totalCost - a.totals.totalCost; });
+
+        // Aggregate by model
+        var byModelMap = {};
+        sessions.forEach(function(s) {
+          var key = (s.modelProvider || "?") + "/" + (s.model || "?");
+          if (!byModelMap[key]) byModelMap[key] = { provider: s.modelProvider || null, model: s.model || null, count: 0, totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 } };
+          var m = byModelMap[key];
+          m.count++;
+          var u = s.usage;
+          m.totals.input += u.input; m.totals.output += u.output;
+          m.totals.cacheRead += u.cacheRead; m.totals.cacheWrite += u.cacheWrite;
+          m.totals.totalTokens += u.totalTokens;
+          m.totals.inputCost += u.inputCost; m.totals.outputCost += u.outputCost;
+          m.totals.cacheReadCost += u.cacheReadCost; m.totals.cacheWriteCost += u.cacheWriteCost;
+          m.totals.totalCost += u.totalCost;
+        });
+        var byModel = Object.values(byModelMap).sort(function(a, b) { return b.totals.totalCost - a.totals.totalCost; });
+
+        // Aggregate tool and message totals across all sessions
+        var aggTools = {};
+        var aggMessages = { total: 0, toolCalls: 0, errors: 0 };
+        sessions.forEach(function(s) {
+          var tu = s.usage.toolUsage;
+          if (tu && tu.tools) {
+            tu.tools.forEach(function(t) {
+              if (!aggTools[t.name]) aggTools[t.name] = 0;
+              aggTools[t.name] += t.count;
+            });
+          }
+          var mc = s.usage.messageCounts;
+          if (mc) {
+            aggMessages.total += mc.total || 0;
+            aggMessages.toolCalls += mc.toolCalls || 0;
+            aggMessages.errors += mc.errors || 0;
+          }
+        });
+        var toolsList = Object.keys(aggTools).map(function(name) { return { name: name, count: aggTools[name] }; });
+        toolsList.sort(function(a, b) { return b.count - a.count; });
+        var toolsAggregate = {
+          totalCalls: toolsList.reduce(function(acc, t) { return acc + t.count; }, 0),
+          tools: toolsList,
+        };
+
+        return resOk(id, {
+          sessions: sessions,
+          totals: totals,
+          aggregates: {
+            byAgent: byAgent,
+            byModel: byModel,
+            tools: toolsAggregate,
+            messages: aggMessages,
+          },
+        });
       } catch (err) {
         console.warn("[opencode-adapter] sessions.usage error:", err.message);
         return resOk(id, { sessions: [], totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, inputCost: 0, outputCost: 0, cacheReadCost: 0, cacheWriteCost: 0, totalCost: 0 } });
