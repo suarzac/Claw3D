@@ -4721,7 +4721,7 @@ export function OfficeScreen({
     "Connected to the gateway, but no agents were loaded into the office.";
 
   return (
-    <main className="relative h-full w-full overflow-hidden bg-black">
+    <main className="relative h-full w-full overflow-hidden bg-black max-md:h-dvh">
       {showGatewayLoadingOverlay ? (
         <div
           className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
@@ -5402,7 +5402,7 @@ export function OfficeScreen({
       >
         {chatOpen && (
           <div
-            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl max-md:mobile-chat-panel"
+            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl max-md:mobile-chat-panel max-md:relative"
             style={{
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
@@ -5410,6 +5410,14 @@ export function OfficeScreen({
               height: "min(560px, calc(100vh - 5.5rem))",
             }}
           >
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="absolute right-2 top-2 z-10 hidden rounded-md bg-white/10 px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/20 hover:text-white max-md:block"
+              aria-label="Close chat"
+            >
+              ✕ Close
+            </button>
             <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${
                 chatRosterCollapsed ? "w-12" : "w-52"
