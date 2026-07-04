@@ -34,6 +34,8 @@ const MAIN_KEY = "main";
 const agentRegistry = new Map();
 // Conversation history: maps sessionKey -> messages[]
 const conversationHistory = new Map();
+// Latest activity per agent: agentId -> { activityType, toolName, status, timestamp }
+const agentActivity = new Map();
 // Active WebSocket send functions for broadcasting
 const activeSendEventFns = new Set();
 // Active chat runs (for abort tracking)
@@ -93,6 +95,7 @@ function buildAgentListPayload() {
     role: agent.role || "subagent",
     status: agent.status || "idle",
     parentId: agent.parentId,
+    activity: agentActivity.get(agent.id) || null,
   }));
 }
 
@@ -297,7 +300,30 @@ function handlePluginMessage(msg) {
       cancelEviction(p.id);
       agentRegistry.delete(p.id);
       conversationHistory.delete(sessionKeyFor(p.id));
+      agentActivity.delete(p.id);
       debouncedPresence();
+      break;
+    }
+
+    case "subagent:activity": {
+      const p = msg.payload;
+      if (!p || !p.sessionId) break;
+      if (p.activityType === "tool" && p.status === "running") {
+        agentActivity.set(p.sessionId, { activityType: "tool", toolName: p.toolName, status: "running", timestamp: p.timestamp || Date.now() });
+        debouncedPresence();
+      } else if (p.activityType === "tool" && (p.status === "completed" || p.status === "error")) {
+        agentActivity.set(p.sessionId, { activityType: "tool", toolName: p.toolName, status: p.status, timestamp: p.timestamp || Date.now() });
+        debouncedPresence();
+        setTimeout(function clearTool(id) { if (agentActivity.get(id)?.status !== "running") { agentActivity.delete(id); debouncedPresence(); } }, 3000, p.sessionId);
+      } else if (p.activityType === "reasoning") {
+        agentActivity.set(p.sessionId, { activityType: "reasoning", status: "running", timestamp: p.timestamp || Date.now() });
+        debouncedPresence();
+        setTimeout(function clearReasoning(id) { agentActivity.delete(id); debouncedPresence(); }, 1000, p.sessionId);
+      } else if (p.activityType === "file") {
+        agentActivity.set(p.sessionId, { activityType: "file", status: "completed", timestamp: p.timestamp || Date.now() });
+        debouncedPresence();
+        setTimeout(function clearFile(id) { agentActivity.delete(id); debouncedPresence(); }, 2000, p.sessionId);
+      }
       break;
     }
 
@@ -681,6 +707,42 @@ async function handleMethod(method, params, id, sendEvent) {
       }
     }
 
+    case "session.fork":
+      try {
+        const result = await callPluginRpc("fork_session", { session_id: p.sessionId, message_id: p.messageId }, 15000);
+        return resOk(id, result);
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
+    case "session.abort":
+      try {
+        await callPluginRpc("abort_session", { session_id: p.sessionId }, 10000);
+        return resOk(id, { ok: true });
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
+    case "session.switch_agent":
+      try {
+        await callPluginRpc("switch_agent", { session_id: p.sessionId, agent: p.agent }, 10000);
+        return resOk(id, { ok: true });
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
+    case "session.switch_model":
+      try {
+        await callPluginRpc("switch_model", { session_id: p.sessionId, model: p.model, provider_id: p.providerId }, 10000);
+        return resOk(id, { ok: true });
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
+    case "session.messages":
+      try {
+        const result = await callPluginRpc("get_messages", { session_id: p.sessionId, limit: p.limit || 20 }, 10000);
+        return resOk(id, result);
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
+    case "session.children":
+      try {
+        const result = await callPluginRpc("get_children", { session_id: p.sessionId }, 10000);
+        return resOk(id, result);
+      } catch (err) { return resErr(id, "rpc_failed", err.message); }
+
     default:
       return resOk(id, {});
   }
@@ -798,6 +860,8 @@ function startAdapter() {
                 "skills.install", "skills.remove", "wake",
                 "usage.cost",
                 "exec.approvals.get", "exec.approvals.set", "exec.approval.resolve",
+                "session.fork", "session.abort", "session.switch_agent",
+                "session.switch_model", "session.messages", "session.children",
               ],
               events: ["chat", "presence", "heartbeat"],
             },
