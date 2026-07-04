@@ -82,11 +82,18 @@ const readOpenclawGatewayDefaults = (env = process.env) => {
   }
 };
 
+const normalizeWsScheme = (url) => {
+  // Downgrade wss:// to ws:// for adapters that don't support TLS
+  // (browsers on HTTPS pages may auto-upgrade ws:// to wss:// in settings)
+  if (typeof url !== "string") return url;
+  return url.replace(/^wss:\/\//, "ws://").replace(/\/+$/, "");
+};
+
 const loadUpstreamGatewaySettings = (env = process.env) => {
   const settingsPath = resolveStudioSettingsPath(env);
   const parsed = readJsonFile(settingsPath);
   const gateway = parsed && typeof parsed === "object" ? parsed.gateway : null;
-  const url = typeof gateway?.url === "string" ? gateway.url.trim() : "";
+  const url = normalizeWsScheme(typeof gateway?.url === "string" ? gateway.url.trim() : "");
   const token = typeof gateway?.token === "string" ? gateway.token.trim() : "";
   const adapterType =
     typeof gateway?.adapterType === "string" && gateway.adapterType.trim()
