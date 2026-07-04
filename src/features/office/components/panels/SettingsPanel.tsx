@@ -90,7 +90,8 @@ export function SettingsPanel({
     selectedAdapterType === "demo" ||
     selectedAdapterType === "local" ||
     selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
+    selectedAdapterType === "custom" ||
+    selectedAdapterType === "opencode";
   const [remoteOfficeTokenDraft, setRemoteOfficeTokenDraft] = useState("");
 
   return (
@@ -140,6 +141,7 @@ export function SettingsPanel({
               ["local", "Local"],
               ["claw3d", "Claw3D"],
               ["custom", "Custom"],
+              ["opencode", "OpenCode"],
               ["openclaw", "OpenClaw"],
             ] as const
           ).map(([adapterType, label]) => {

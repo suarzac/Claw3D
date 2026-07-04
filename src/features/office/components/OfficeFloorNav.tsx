@@ -31,6 +31,7 @@ const PROVIDER_LABEL: Record<FloorProvider, string> = {
   custom: "Custom",
   local: "Local",
   claw3d: "Claw3D",
+  opencode: "OpenCode",
 };
 
 const renderFloorButton = (params: {
@@ -111,7 +112,17 @@ export function OfficeFloorNav({
     OFFICE_FLOORS.find((floor) => floor.id === displayActiveFloorId) ?? OFFICE_FLOORS[0];
   const activeRoster = floorRosterCache[activeFloor.id];
 
-  const [directoryCollapsed, setDirectoryCollapsed] = useState(false);
+  const [directoryCollapsed, setDirectoryCollapsed] = useState(() => {
+    if (typeof window === "undefined") return false;
+    try {
+      if (window.matchMedia("(max-width: 768px)").matches) return true;
+      const stored = window.localStorage.getItem(DIRECTORY_COLLAPSED_STORAGE_KEY);
+      if (stored === "true") return true;
+    } catch {
+      // localStorage may be unavailable (private mode, SSR, etc.); ignore.
+    }
+    return false;
+  });
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -138,7 +149,7 @@ export function OfficeFloorNav({
   };
 
   return (
-    <aside className="pointer-events-none fixed left-4 top-24 z-40 flex w-[240px] max-w-[calc(100vw-2rem)] flex-col gap-3">
+    <aside className="pointer-events-none fixed left-3 top-24 z-40 flex w-[240px] max-w-[calc(100vw-1.5rem)] flex-col gap-3 max-md:left-3 max-md:top-auto max-md:bottom-20 max-md:w-[calc(100vw-1.5rem)] max-md:max-w-none">
       <section className="pointer-events-auto rounded-2xl border border-amber-400/20 bg-black/78 p-3 shadow-2xl backdrop-blur">
         <button
           type="button"
@@ -209,7 +220,7 @@ export function OfficeFloorNav({
         ) : null}
       </section>
 
-      <section className="pointer-events-auto rounded-2xl border border-white/10 bg-black/68 px-3 py-2 shadow-xl backdrop-blur">
+      <section className="pointer-events-auto rounded-2xl border border-white/10 bg-black/68 px-3 py-2 shadow-xl backdrop-blur max-md:hidden">
         <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-white/45">
           Current Floor
         </div>

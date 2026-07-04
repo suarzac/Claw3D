@@ -101,7 +101,7 @@ export const isSameSessionKey = (a: string, b: string) => {
 };
 
 const CONNECT_FAILED_CLOSE_CODE = 4008;
-const GATEWAY_CONNECT_TIMEOUT_MS = 13_000;
+const GATEWAY_CONNECT_TIMEOUT_MS = 30_000;
 
 const parseConnectFailedCloseReason = (
   reason: string
@@ -187,7 +187,8 @@ const normalizeLocalGatewayDefaults = (value: unknown): StudioGatewaySettings | 
     raw.adapterType === "openclaw" ||
     raw.adapterType === "local" ||
     raw.adapterType === "claw3d" ||
-    raw.adapterType === "custom"
+    raw.adapterType === "custom" ||
+    raw.adapterType === "opencode"
       ? raw.adapterType
       : "openclaw";
   const profiles = normalizeGatewayProfilesPublic(raw.profiles);
@@ -210,7 +211,7 @@ const normalizeGatewayProfilesPublic = (
   if (!value || typeof value !== "object") return undefined;
   const raw = value as Partial<Record<StudioGatewayAdapterType, StudioGatewayProfilePublic>>;
   const profiles: Partial<Record<StudioGatewayAdapterType, { url: string; token: string }>> = {};
-  for (const adapterType of ["openclaw", "hermes", "demo", "local", "claw3d", "custom"] as const) {
+  for (const adapterType of ["openclaw", "hermes", "demo", "local", "claw3d", "custom", "opencode"] as const) {
     const profile = normalizeGatewayProfilePublic(raw[adapterType]);
     if (profile) {
       profiles[adapterType] = profile;
@@ -291,8 +292,16 @@ export class GatewayClient {
       this.rejectConnect = reject;
     });
 
+    // Use same-origin WebSocket proxy when gateway URL is a different host
+    // This avoids mixed-content blocks on HTTPS pages (mobile via Tailscale)
+    const browserUrl = typeof window !== "undefined" ? window.location.host : "";
+    const gatewayHost = (() => { try { return new URL(options.gatewayUrl).host; } catch { return ""; } })();
+    const wsUrl = browserUrl && gatewayHost && browserUrl !== gatewayHost
+      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${browserUrl}/api/gateway/ws`
+      : options.gatewayUrl;
+
     const nextClient = new GatewayBrowserClient({
-      url: options.gatewayUrl,
+      url: wsUrl,
       token: options.token,
       authScopeKey: options.authScopeKey,
       clientName: options.clientName,
@@ -964,7 +973,8 @@ export const useGatewayConnection = (
         hello?.adapterType === "demo" ||
         hello?.adapterType === "hermes" ||
         hello?.adapterType === "openclaw" ||
-        hello?.adapterType === "custom"
+        hello?.adapterType === "custom" ||
+        hello?.adapterType === "opencode"
           ? hello.adapterType
           : "openclaw";
       setDetectedAdapterType(nextDetectedAdapterType);

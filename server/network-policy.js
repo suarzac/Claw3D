@@ -43,6 +43,16 @@ const isIpv6Loopback = (value) => {
   return net.isIP(mapped) === 4 && isIpv4Loopback(mapped);
 };
 
+const isPrivateNetwork = (value) => {
+  // RFC 1918 private ranges
+  if (value.startsWith("10.")) return true;
+  if (value.startsWith("172.")) { const o = parseInt(value.split(".")[1], 10); if (o >= 16 && o <= 31) return true; }
+  if (value.startsWith("192.168.")) return true;
+  // Tailscale CGNAT range (100.64.0.0/10)
+  if (value.startsWith("100.")) { const o = parseInt(value.split(".")[1], 10); if (o >= 64 && o <= 127) return true; }
+  return false;
+};
+
 const isPublicHost = (host) => {
   const normalized = normalizeHost(host);
   if (!normalized) return false;
@@ -54,7 +64,9 @@ const isPublicHost = (host) => {
 
   const ipVersion = net.isIP(normalized);
   if (ipVersion === 4) {
-    return !isIpv4Loopback(normalized);
+    if (isIpv4Loopback(normalized)) return false;
+    if (isPrivateNetwork(normalized)) return false;
+    return true;
   }
   if (ipVersion === 6) {
     return !isIpv6Loopback(normalized);

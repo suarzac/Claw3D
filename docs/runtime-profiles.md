@@ -71,6 +71,22 @@ Typical URL:
 http://localhost:3000/api/runtime/custom
 ```
 
+### `opencode`
+
+The bundled OpenCode subagent adapter over the gateway-shaped WebSocket flow.
+
+This adapter visualizes OpenCode subagents (child sessions spawned via `task()`) as individual characters in the 3D office. Subagents appear with their session title as the agent name and their agent type (explore, Sisyphus-Junior, etc.) as the role label.
+
+Requires:
+- The adapter running: `npm run opencode-adapter`
+- The plugin installed: `npm run setup:opencode`
+- OpenCode to be running with the plugin active
+
+Typical URL:
+```text
+ws://localhost:18790
+```
+
 ### `custom`
 
 The generic HTTP runtime seam when you want to point Claw3D at any compatible orchestrator boundary.

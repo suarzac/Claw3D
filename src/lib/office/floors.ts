@@ -5,7 +5,8 @@ export type FloorProvider =
   | "custom"
   | "demo"
   | "local"
-  | "claw3d";
+  | "claw3d"
+  | "opencode";
 export type FloorZone = "building" | "outside";
 
 export type FloorId =

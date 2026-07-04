@@ -830,7 +830,7 @@ const AgentChatTranscript = memo(function AgentChatTranscript({
   }, [runStartedAt, showLiveAssistantCard, status]);
 
   return (
-    <div className="relative flex-1 overflow-hidden">
+    <div className="relative flex-1 overflow-hidden max-md:overflow-y-auto">
       <div
         ref={chatRef}
         data-testid="agent-chat-scroll"

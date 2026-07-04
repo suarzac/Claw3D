@@ -164,7 +164,7 @@ const buildFallbackCapabilities = (skill: SkillStatusEntry): string[] => {
 const buildFallbackMetadata = (
   skill: SkillStatusEntry,
 ): SkillMarketplaceMetadata => {
-  const normalizedKey = skill.skillKey.trim().toLowerCase();
+  const normalizedKey = (skill.skillKey ?? "").trim().toLowerCase();
   const source = skill.source.trim();
   const seed = hashString(`${normalizedKey}:${source}`);
   const category =
@@ -201,7 +201,7 @@ const buildFallbackMetadata = (
 export const resolveSkillMarketplaceMetadata = (
   skill: SkillStatusEntry,
 ): SkillMarketplaceMetadata => {
-  const normalizedKey = skill.skillKey.trim().toLowerCase();
+  const normalizedKey = (skill.skillKey ?? "").trim().toLowerCase();
   const fallback = buildFallbackMetadata(skill);
   const override = SKILL_MARKETPLACE_OVERRIDES[normalizedKey];
   const packagedSkill = getPackagedSkillBySkillKey(skill.skillKey);

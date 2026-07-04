@@ -4545,8 +4545,19 @@ export function OfficeScreen({
     [marketplace.skillsReport],
   );
   const taskManagerReady = useMemo(
-    () => (taskManagerSkill ? deriveSkillReadinessState(taskManagerSkill) === "ready" : false),
-    [taskManagerSkill],
+    () => {
+      if (taskManagerSkill) {
+        return deriveSkillReadinessState(taskManagerSkill) === "ready";
+      }
+      // Fallback: the gateway may not report workspace-packaged skills
+      // (task-manager) in skills.status immediately after install.
+      // Check the agent's allowlist as evidence of enablement.
+      if (!Array.isArray(marketplace.skillsAllowlist)) return false;
+      return marketplace.skillsAllowlist.some(
+        (name) => name.trim().toLowerCase() === "task-manager",
+      );
+    },
+    [taskManagerSkill, marketplace.skillsAllowlist],
   );
   const soundclawReady = useMemo(
     () => (soundclawSkill ? deriveSkillReadinessState(soundclawSkill) === "ready" : false),
@@ -4710,7 +4721,7 @@ export function OfficeScreen({
     "Connected to the gateway, but no agents were loaded into the office.";
 
   return (
-    <main className="relative h-full w-full overflow-hidden bg-black">
+    <main className="relative h-full w-full overflow-hidden bg-black max-md:h-dvh">
       {showGatewayLoadingOverlay ? (
         <div
           className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-[#120a05]/76"
@@ -4728,8 +4739,8 @@ export function OfficeScreen({
         </div>
       ) : null}
       {showGatewayConnectOverlay ? (
-        <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center bg-[#120a05]/76 px-4 py-10">
-          <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl">
+        <div className="pointer-events-auto absolute inset-0 z-50 flex items-start justify-center overflow-y-auto bg-[#120a05]/76 px-4 py-10 max-md:px-2 max-md:py-4">
+          <div className="w-full max-w-[860px] rounded-2xl border border-amber-900/55 bg-[#120a05]/98 p-3 shadow-2xl max-md:mt-8">
             <GatewayConnectScreen
               gatewayUrl={gatewayUrl}
               token={token}
@@ -4756,7 +4767,7 @@ export function OfficeScreen({
         }}
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
       />
-      <section className="relative h-full min-h-0 min-w-0 overflow-hidden">
+      <section className={`relative h-full min-h-0 min-w-0 overflow-hidden max-md:touch-none ${showGatewayConnectOverlay ? "max-md:pointer-events-none" : ""}`}>
         <RetroOffice3D
           key={activeFloor.id}
           agents={allVisibleAgents}
@@ -5173,7 +5184,7 @@ export function OfficeScreen({
       ) : null}
 
       {showOpenClawConsole ? (
-        <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
+        <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur max-md:mobile-event-console">
           <div className="flex items-center justify-between border-b border-cyan-500/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
             <span>Agent Event Console</span>
             <div className="flex items-center gap-2">
@@ -5387,11 +5398,11 @@ export function OfficeScreen({
       <div
         className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${
           debugEnabled ? "hidden" : ""
-        }`}
+        } max-md:mobile-chat-wrapper`}
       >
         {chatOpen && (
           <div
-            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"
+            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl max-md:mobile-chat-panel max-md:relative"
             style={{
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
@@ -5399,6 +5410,14 @@ export function OfficeScreen({
               height: "min(560px, calc(100vh - 5.5rem))",
             }}
           >
+            <button
+              type="button"
+              onClick={() => setChatOpen(false)}
+              className="absolute right-2 top-2 z-10 hidden rounded-md bg-white/10 px-2 py-1 text-[11px] text-white/70 transition hover:bg-white/20 hover:text-white max-md:block"
+              aria-label="Close chat"
+            >
+              ✕ Close
+            </button>
             <div
               className={`flex shrink-0 flex-col border-r border-white/10 transition-[width] ${
                 chatRosterCollapsed ? "w-12" : "w-52"

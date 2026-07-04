@@ -313,12 +313,15 @@
 
   body {
     @apply bg-background text-foreground;
-    min-height: 100vh;
+    min-height: 100dvh;
     margin: 0;
     letter-spacing: var(--tracking-normal);
     font-family: var(--font-sans), sans-serif;
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
   }
 
   body::before {
@@ -1351,5 +1354,33 @@ textarea:focus::-webkit-scrollbar {
   40% {
     opacity: 0.95;
     transform: translateY(-1px);
+  }
+}
+
+@media (max-width: 768px) {
+  .mobile-chat-panel {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100vw !important;
+    height: 100dvh !important;
+    border-radius: 0 !important;
+    border: none !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
+  }
+
+  .mobile-chat-wrapper {
+    position: fixed !important;
+    inset: 0 !important;
+    z-index: 50 !important;
+    bottom: 0 !important;
+    right: 0 !important;
+  }
+
+  .mobile-event-console {
+    width: calc(100vw - 1.5rem) !important;
+    max-height: 30vh !important;
   }
 }

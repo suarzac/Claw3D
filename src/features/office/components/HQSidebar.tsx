@@ -65,7 +65,7 @@ export function HQSidebar({
   const boardLikeWidth = activeTab === "kanban";
 
   return (
-    <aside className="pointer-events-none fixed inset-y-0 right-0 z-20 flex justify-end">
+    <aside className="pointer-events-none fixed inset-y-0 right-0 z-20 flex justify-end max-md:inset-x-0">
       <div className="pointer-events-auto mt-14 flex shrink-0 flex-col items-end gap-1.5">
         <button
           type="button"
@@ -117,7 +117,7 @@ export function HQSidebar({
       {open ? (
         <div
           className={`pointer-events-auto flex h-full flex-col border-l border-cyan-500/20 bg-black/85 shadow-2xl backdrop-blur ${
-            boardLikeWidth ? "w-[min(94vw,1180px)]" : "w-56"
+            boardLikeWidth ? "w-[min(94vw,1180px)]" : "w-56 max-md:w-full"
           }`}
         >
           <div className="border-b border-cyan-500/15 px-4 py-3">
@@ -162,7 +162,7 @@ export function HQSidebar({
             <div
               role="tablist"
               aria-label="Headquarters panels"
-              className="grid grid-cols-4 border-b border-cyan-500/15"
+              className="grid grid-cols-4 border-b border-cyan-500/15 max-md:min-h-[44px]"
             >
               {PRIMARY_TABS.map((tab) => {
                 const isActive = tab === activeTab;
@@ -198,7 +198,7 @@ export function HQSidebar({
             role="tabpanel"
             id={`hq-panel-${activeTab}`}
             aria-labelledby={`hq-tab-${activeTab}`}
-            className="min-h-0 flex-1 overflow-hidden"
+            className="min-h-0 flex-1 overflow-hidden max-md:overflow-y-auto"
           >
             {activePanel}
           </div>

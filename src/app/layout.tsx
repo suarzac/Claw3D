@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   description: "Focused operator studio for the OpenClaw gateway.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 const display = Bebas_Neue({
   variable: "--font-display",
   weight: "400",
@@ -41,7 +48,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}>
-        <main className="h-screen w-screen overflow-hidden bg-background">{children}</main>
+        <main className="h-screen w-screen overflow-hidden bg-background max-md:h-auto max-md:min-h-screen max-md:overflow-y-auto">{children}</main>
       </body>
     </html>
   );
