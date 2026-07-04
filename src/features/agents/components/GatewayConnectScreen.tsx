@@ -52,7 +52,8 @@ export const GatewayConnectScreen = ({
     selectedAdapterType === "demo" ||
     selectedAdapterType === "local" ||
     selectedAdapterType === "claw3d" ||
-    selectedAdapterType === "custom";
+    selectedAdapterType === "custom" ||
+    selectedAdapterType === "opencode";
   const isLocal = useMemo(() => isLocalGatewayUrl(gatewayUrl), [gatewayUrl]);
   const localPort = useMemo(() => resolveLocalGatewayPort(gatewayUrl), [gatewayUrl]);
   const localGatewayCommand = useMemo(
@@ -85,6 +86,9 @@ export const GatewayConnectScreen = ({
   const useClaw3dPreset = () => {
     onAdapterTypeChange("claw3d");
   };
+  const useOpenCodePreset = () => {
+    onAdapterTypeChange("opencode");
+  };
   const statusCopy = useMemo(() => {
     if (status === "connecting" && isLocal) {
       return `Local gateway detected on port ${localPort}. Connecting…`;
@@ -109,6 +113,8 @@ export const GatewayConnectScreen = ({
         return "Local runtime expects a direct HTTP runtime/orchestrator boundary, not a provider catalog.";
       case "claw3d":
         return "Claw3D runtime preserves Claw3D transcript conventions over the direct runtime seam.";
+      case "opencode":
+        return "OpenCode subagent adapter — visualizes child sessions spawned via task() as characters in the 3D office.";
       case "custom":
       default:
         return "Custom is the generic direct runtime seam. Use it for compatible orchestrators, not for provider-specific auth flows.";
@@ -313,6 +319,13 @@ export const GatewayConnectScreen = ({
               onClick={useOpenClawPreset}
             >
               OpenClaw backend
+            </button>
+            <button
+              type="button"
+              className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
+              onClick={useOpenCodePreset}
+            >
+              OpenCode backend
             </button>
           </div>
         </div>

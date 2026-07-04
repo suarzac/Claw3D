@@ -63,6 +63,9 @@ export const ConnectionPanel = ({
   const applyOpenClawPreset = () => {
     onAdapterTypeChange("openclaw");
   };
+  const applyOpenCodePreset = () => {
+    onAdapterTypeChange("opencode");
+  };
   const selectedAdapterHint =
     selectedAdapterType === "openclaw"
       ? "OpenClaw owns provider/model routing behind the gateway."
@@ -74,7 +77,9 @@ export const ConnectionPanel = ({
             ? "Claw3D runtime keeps Claw3D transcript semantics over direct HTTP."
             : selectedAdapterType === "local"
               ? "Local runtime expects a direct orchestrator boundary."
-              : "Custom is a generic runtime endpoint, not a provider-native adapter.";
+              : selectedAdapterType === "opencode"
+                ? "OpenCode subagent adapter — visualizes child sessions as agents."
+                : "Custom is a generic runtime endpoint, not a provider-native adapter.";
 
   return (
     <div className="fade-up-delay flex flex-col gap-3">
@@ -182,6 +187,13 @@ export const ConnectionPanel = ({
           onClick={applyOpenClawPreset}
         >
           OpenClaw backend
+        </button>
+        <button
+          className="ui-btn-secondary px-3 py-1.5 text-[11px] font-semibold tracking-[0.05em]"
+          type="button"
+          onClick={applyOpenCodePreset}
+        >
+          OpenCode backend
         </button>
       </div>
       {error ? (
