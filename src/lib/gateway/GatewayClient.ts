@@ -292,8 +292,16 @@ export class GatewayClient {
       this.rejectConnect = reject;
     });
 
+    // Use same-origin WebSocket proxy when gateway URL is a different host
+    // This avoids mixed-content blocks on HTTPS pages (mobile via Tailscale)
+    const browserUrl = typeof window !== "undefined" ? window.location.host : "";
+    const gatewayHost = (() => { try { return new URL(options.gatewayUrl).host; } catch { return ""; } })();
+    const wsUrl = browserUrl && gatewayHost && browserUrl !== gatewayHost
+      ? `${window.location.protocol === "https:" ? "wss:" : "ws:"}//${browserUrl}/api/gateway/ws`
+      : options.gatewayUrl;
+
     const nextClient = new GatewayBrowserClient({
-      url: options.gatewayUrl,
+      url: wsUrl,
       token: options.token,
       authScopeKey: options.authScopeKey,
       clientName: options.clientName,
