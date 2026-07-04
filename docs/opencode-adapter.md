@@ -130,6 +130,10 @@ The adapter queries opencode.db directly (via better-sqlite3) for:
 
 **Fix**: The adapter only loads subagents from the last 60 minutes. Completed agents are evicted after 5 minutes of idle.
 
+### Budget limits and alerts are local only
+
+Budget limits (`dailySpendLimitUsd`, `monthlySpendLimitUsd`, `perAgentSoftLimitUsd`, `alertThresholdPct`) are stored as Studio preferences in the local settings file — they are not stored in OpenCode or enforced server-side. The analytics panel computes budget status from `totals.totalCost` vs stored limits. No adapter changes needed.
+
 ### Analytics shows 0 cost / 0 tokens
 
 **Cause**: The CLI JSON fallback truncates at ~64KB, returning empty results.
