@@ -4545,8 +4545,19 @@ export function OfficeScreen({
     [marketplace.skillsReport],
   );
   const taskManagerReady = useMemo(
-    () => (taskManagerSkill ? deriveSkillReadinessState(taskManagerSkill) === "ready" : false),
-    [taskManagerSkill],
+    () => {
+      if (taskManagerSkill) {
+        return deriveSkillReadinessState(taskManagerSkill) === "ready";
+      }
+      // Fallback: the gateway may not report workspace-packaged skills
+      // (task-manager) in skills.status immediately after install.
+      // Check the agent's allowlist as evidence of enablement.
+      if (!Array.isArray(marketplace.skillsAllowlist)) return false;
+      return marketplace.skillsAllowlist.some(
+        (name) => name.trim().toLowerCase() === "task-manager",
+      );
+    },
+    [taskManagerSkill, marketplace.skillsAllowlist],
   );
   const soundclawReady = useMemo(
     () => (soundclawSkill ? deriveSkillReadinessState(soundclawSkill) === "ready" : false),
@@ -4756,7 +4767,7 @@ export function OfficeScreen({
         }}
         activeAdapterType={(selectedAdapterType as FloorProvider) ?? null}
       />
-      <section className="relative h-full min-h-0 min-w-0 overflow-hidden">
+      <section className="relative h-full min-h-0 min-w-0 overflow-hidden max-md:touch-none">
         <RetroOffice3D
           key={activeFloor.id}
           agents={allVisibleAgents}
@@ -5173,7 +5184,7 @@ export function OfficeScreen({
       ) : null}
 
       {showOpenClawConsole ? (
-        <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur">
+        <section className="pointer-events-auto fixed bottom-3 left-3 z-30 flex w-[520px] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded border border-cyan-500/25 bg-black/78 shadow-2xl backdrop-blur max-md:mobile-event-console">
           <div className="flex items-center justify-between border-b border-cyan-500/15 px-3 py-2 font-mono text-[11px] uppercase tracking-[0.18em] text-cyan-200/80">
             <span>Agent Event Console</span>
             <div className="flex items-center gap-2">
@@ -5387,11 +5398,11 @@ export function OfficeScreen({
       <div
         className={`fixed bottom-3 z-30 flex flex-col items-end gap-2 ${sidebarOpen ? "right-84" : "right-3"} ${
           debugEnabled ? "hidden" : ""
-        }`}
+        } max-md:mobile-chat-wrapper`}
       >
         {chatOpen && (
           <div
-            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl"
+            className="flex overflow-hidden rounded border border-white/10 bg-[#0e0a04] shadow-2xl max-md:mobile-chat-panel"
             style={{
               width: chatRosterCollapsed
                 ? "min(680px, calc(100vw - 1.5rem))"
