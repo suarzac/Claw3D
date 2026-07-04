@@ -313,12 +313,15 @@
 
   body {
     @apply bg-background text-foreground;
-    min-height: 100vh;
+    min-height: 100dvh;
     margin: 0;
     letter-spacing: var(--tracking-normal);
     font-family: var(--font-sans), sans-serif;
     position: relative;
-    overflow: hidden;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: manipulation;
   }
 
   body::before {

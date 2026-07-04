@@ -7,6 +7,13 @@ export const metadata: Metadata = {
   description: "Focused operator studio for the OpenClaw gateway.",
 };
 
+export const viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
+};
+
 const display = Bebas_Neue({
   variable: "--font-display",
   weight: "400",
