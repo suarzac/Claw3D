@@ -41,7 +41,7 @@ export default function RootLayout({
         />
       </head>
       <body className={`${display.variable} ${sans.variable} ${mono.variable} antialiased`}>
-        <main className="h-screen w-screen overflow-hidden bg-background">{children}</main>
+        <main className="h-screen w-screen overflow-hidden bg-background max-md:h-auto max-md:min-h-screen max-md:overflow-y-auto">{children}</main>
       </body>
     </html>
   );

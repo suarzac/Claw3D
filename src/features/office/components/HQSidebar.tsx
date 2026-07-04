@@ -65,7 +65,7 @@ export function HQSidebar({
   const boardLikeWidth = activeTab === "kanban";
 
   return (
-    <aside className="pointer-events-none fixed inset-y-0 right-0 z-20 flex justify-end">
+    <aside className="pointer-events-none fixed inset-y-0 right-0 z-20 flex justify-end max-md:inset-x-0">
       <div className="pointer-events-auto mt-14 flex shrink-0 flex-col items-end gap-1.5">
         <button
           type="button"
@@ -198,7 +198,7 @@ export function HQSidebar({
             role="tabpanel"
             id={`hq-panel-${activeTab}`}
             aria-labelledby={`hq-tab-${activeTab}`}
-            className="min-h-0 flex-1 overflow-hidden"
+            className="min-h-0 flex-1 overflow-hidden max-md:overflow-y-auto"
           >
             {activePanel}
           </div>
