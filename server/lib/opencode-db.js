@@ -176,9 +176,10 @@ function getSessionsUsage(startDate, endDate, limit) {
        LIMIT ${rowLimit}`
     );
 
-    // Batch fetch message counts for all returned sessions
+    // Batch fetch message counts and tool usage for all returned sessions
     const sessionIds = rows.map(function(r) { return r.id; });
     const msgCounts = getMessageCounts(sessionIds);
+    const toolUsage = getToolUsage(sessionIds);
 
     return rows.map(function(row) {
       const modelInfo = parseModelField(row.model);
@@ -189,6 +190,7 @@ function getSessionsUsage(startDate, endDate, limit) {
       const totalTokens = input + output + cacheRead + cacheWrite;
       const costs = allocateCost(row.cost, input, output, cacheRead, cacheWrite);
       const counts = msgCounts[row.id] || { total: 0, user: 0, assistant: 0, errors: 0 };
+      const tools = toolUsage[row.id] || { totalCalls: 0, tools: [] };
 
       return {
         key: row.id,
@@ -215,10 +217,11 @@ function getSessionsUsage(startDate, endDate, limit) {
             total: counts.total,
             user: counts.user,
             assistant: counts.assistant,
-            toolCalls: 0,
-            toolResults: 0,
+            toolCalls: tools.totalCalls,
+            toolResults: tools.totalCalls,
             errors: counts.errors,
           },
+          toolUsage: tools,
         },
       };
     });
@@ -255,6 +258,57 @@ function getMessageCounts(sessionIds) {
         if (data.error) counts[m.session_id].errors++;
       }
       return counts;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Batch query tool usage for a list of session IDs.
+ * Returns { [sessionId]: { totalCalls, tools: [{ name, count }] } }.
+ * Tool calls are in the event table as message.part.updated.1 with part.type = "tool".
+ * Each unique tool invocation has a callID — we COUNT(DISTINCT callID) to avoid
+ * double-counting status transitions (pending → running → completed).
+ */
+function getToolUsage(sessionIds) {
+  if (!Array.isArray(sessionIds) || sessionIds.length === 0) return {};
+  try {
+    const Database = require("better-sqlite3");
+    const db = new Database(getDbPath(), { readonly: true, fileMustExist: true });
+    try {
+      const placeholders = sessionIds.map(function() { return "?"; }).join(",");
+      // Use aggregate_id (session ID) with the existing index on (aggregate_id, type, seq)
+      // json_extract on the data column is used for part.type and part.tool — this runs
+      // only on the indexed subset, not a full table scan.
+      const stmt = db.prepare(
+        `SELECT
+          aggregate_id AS sid,
+          json_extract(data, '$.part.tool') AS tool,
+          COUNT(DISTINCT json_extract(data, '$.part.callID')) AS cnt
+         FROM event
+         WHERE aggregate_id IN (${placeholders})
+           AND type = 'message.part.updated.1'
+           AND json_extract(data, '$.part.type') = 'tool'
+         GROUP BY sid, tool`
+      );
+      const rows = stmt.all.apply(stmt, sessionIds);
+      const result = {};
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        const sid = r.sid;
+        if (!sid) continue;
+        if (!result[sid]) result[sid] = { totalCalls: 0, tools: [] };
+        result[sid].totalCalls += r.cnt;
+        result[sid].tools.push({ name: r.tool, count: r.cnt });
+      }
+      // Sort tools by count descending
+      for (const sid of Object.keys(result)) {
+        result[sid].tools.sort(function(a, b) { return b.count - a.count; });
+      }
+      return result;
     } finally {
       db.close();
     }
@@ -343,4 +397,4 @@ function queryDb(sql, params = []) {
   }
 }
 
-module.exports = { getChildSessions, getOrchestratorSession, getSessionMessages, getOpenCodeModels, getSessionsUsage, getUsageCost, getDbPath, getConfigPath };
+module.exports = { getChildSessions, getOrchestratorSession, getSessionMessages, getOpenCodeModels, getSessionsUsage, getUsageCost, getToolUsage, getDbPath, getConfigPath };
